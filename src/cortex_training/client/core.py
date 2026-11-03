@@ -175,6 +175,10 @@ from cortex_training.model_deployment import WIRE_SOURCE_JOB_ID
 from cortex_training.model_deployment import WIRE_TENSOR_PARALLEL_SIZE
 from cortex_training.model_deployment import WIRE_VLLM_CONFIG
 
+# tenacity renamed wait_exponential_jitter's `initial` to `multiplier` (and warns on
+# `initial`); the oldest supported tenacity has only `initial`.
+_JITTER_START = "multiplier" if "multiplier" in inspect.signature(wait_exponential_jitter).parameters else "initial"
+
 logger = logging.getLogger(__name__)
 
 _STDOUT_CHUNK_RE = re.compile(
@@ -2737,6 +2741,16 @@ class CortexTrainingClient:
 
         resolution = _picker.resolve(connection=connection, database=database, schema=schema)
         logger.info("Cortex Training target: %s", resolution.describe())
+        return cls._from_resolution(resolution, **kwargs)
+
+    @classmethod
+    def _from_resolution(cls, resolution: Any, **kwargs: Any) -> "CortexTrainingClient":
+        """Create the client a :class:`~cortex_training._picker.Resolution` describes.
+
+        For callers that resolve first and show the target, such as the CLI.
+        """
+        from cortex_training import _picker
+
         if resolution.profile is None:
             return cls._from_pat(
                 host=resolution.host,
@@ -3298,7 +3312,7 @@ class CortexTrainingClient:
         retryer = Retrying(
             retry=retry_if_exception(should_retry),
             stop=stop_after_attempt(max_attempts),
-            wait=wait_exponential_jitter(initial=0.5, max=10.0),
+            wait=wait_exponential_jitter(**{_JITTER_START: 0.5}, max=10.0),
             reraise=True,
         )
         return retryer(attempt)
@@ -3722,7 +3736,7 @@ class CortexTrainingClient:
         ``page_size`` is 1 to 1000, and ``schema`` needs ``database`` with it.
         The server applies every filter: ``database`` / ``schema`` narrow the
         scope, ``status`` is one status or a list of them (``active`` and
-        ``done`` name groups), ``submitted_by`` takes a user name, and
+        ``terminal`` name groups), ``submitted_by`` takes a user name, and
         ``created_after`` (inclusive) / ``created_before`` (exclusive) take a
         ``date``, a ``datetime`` (sent in UTC; naive is taken as UTC) or a
         string sent as-is. Rows also carry ``database_name`` and
