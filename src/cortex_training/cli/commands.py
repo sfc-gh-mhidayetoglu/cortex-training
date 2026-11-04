@@ -43,6 +43,8 @@ from cortex_training.model_deployment import OUT_FAILURE
 from cortex_training.model_deployment import OUT_STATUS
 from cortex_training.model_deployment import ModelDeploymentSpec
 
+logger = logging.getLogger(__name__)
+
 _CONFIG_KEYS = {
     "base_url",
     "host",
@@ -1455,6 +1457,23 @@ def _request_sent_pat(response: Any) -> bool:
     return headers.get("X-Snowflake-Authorization-Token-Type") == "PROGRAMMATIC_ACCESS_TOKEN"
 
 
+def _message_shows_server_error(message: str, response: Any) -> bool:
+    """Whether ``message`` already shows the code and message of ``response``'s JSON error body.
+
+    The client adds them to the HTTP errors it raises for a 4xx or 5xx answer.
+    Errors it explains in its own words, such as a missing database, leave them
+    to the body.
+    """
+    from cortex_training.client.core import _server_message_suffix
+
+    try:
+        suffix = _server_message_suffix(response)
+    except Exception:
+        logger.debug("could not read the service's error from the response body", exc_info=True)
+        return False
+    return bool(suffix) and suffix in message
+
+
 def _format_error(exc: BaseException) -> str:
     response = getattr(exc, "response", None)
     if response is None:
@@ -1466,7 +1485,7 @@ def _format_error(exc: BaseException) -> str:
         parts.append(f"snowflake request id: {request_id}")
 
     body = (getattr(response, "text", "") or "").strip()
-    if body:
+    if body and not _message_shows_server_error(parts[0], response):
         if len(body) > 4000:
             body = body[:4000] + "...<truncated>"
         parts.append(f"response body: {body}")
