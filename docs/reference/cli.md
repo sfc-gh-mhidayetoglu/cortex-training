@@ -84,6 +84,8 @@ cortex-training login                         # Set up or check the profile to u
 cortex-training login training                # Use or create the profile "training"
 cortex-training list                          # Use the profile login saved
 cortex-training --connection training list    # Use another profile for one command
+cortex-training status                        # Show where commands connect, and why
+cortex-training --version                     # Show the installed version
 ```
 
 ### [Submit Jobs](#submit-a-job)
@@ -440,6 +442,39 @@ from `config.json`; the command prints the paths when it finishes. If a check
 fails, or there's no `pat` in the file or the environment, or the file has a
 `base_url` instead of a `host`, or the file is the new `config.json` itself, it
 says why and changes nothing. It needs a terminal, and takes no profile name.
+
+### Status
+
+```bash
+cortex-training status
+cortex-training --connection other status
+```
+
+`status` shows where a command would connect, and why, without signing in. It
+resolves the connection exactly as other commands do, including `--connection`,
+`--database` and `--schema`, then prints JSON with the same keys every time
+(`null` where one doesn't apply):
+
+- `connection`: `profile`, or for the older methods `config file`,
+  `flags or environment`, or `base_url`; with `profile` and `profile_source`,
+  or `config_file`, or `base_url`;
+- `account`, `host`, `user`, `role`: the profile's own settings. The Connector
+  may fill in what's missing (a host from the account), and HTTPS calls use the
+  hyphen form of an underscore account host;
+- `signs_in_with`, and `usable`: `false` when commands would fail on the
+  profile, for example one with no `user`, with the reason in `warnings`;
+- `database` and `schema`, each with its `_source`;
+- `profile_file` and `config_json` paths;
+- `warnings`: deprecation notes for an older method, notes such as "Using
+  database X from CORTEX_TRAINING_DATABASE.", and why a profile isn't usable.
+
+It never shows a token or password. In a terminal it also prints the one-line
+summary commands print. With nothing set up, it says how to start and exits
+with code 2.
+
+It reads only local files and the environment. To check that a profile works,
+run `cortex-training login NAME`. `cortex-training --version` prints the
+installed version.
 
 ### Manage Existing Jobs
 
