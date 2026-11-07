@@ -4564,3 +4564,69 @@ def test_status_includes_the_pickers_own_notes(monkeypatch):
     code, report, _ = _status(monkeypatch, CORTEX_TRAINING_DATABASE="ENV_DB")
     assert code == 0 and report["database"] == "ENV_DB"
     assert "Using database ENV_DB from CORTEX_TRAINING_DATABASE." in report["warnings"]
+
+
+class _TelemetryClient(FakeClient):
+    def __init__(self):
+        super().__init__()
+        self.telemetry_closes = []
+
+    def close_telemetry(self, timeout):
+        self.telemetry_closes.append(timeout)
+
+    def cancel_job(self, job_id):
+        raise ValueError("no such job")
+
+
+def test_a_command_sends_its_telemetry_as_it_finishes_even_when_it_fails():
+    clients = []
+
+    def make_client(_args):
+        clients.append(_TelemetryClient())
+        return clients[-1]
+
+    stdout, stderr = io.StringIO(), io.StringIO()
+    assert cli.main(_base_args() + ["models"], client_factory=make_client, stdout=stdout, stderr=stderr) == 0
+    assert cli.main(_base_args() + ["cancel", "job-1"], client_factory=make_client, stdout=stdout, stderr=stderr) == 1
+
+    # More than the second interpreter exit allows: a first export looks the collector up.
+    assert [client.telemetry_closes for client in clients] == [[cli.CLI_TELEMETRY_CLOSE_SECONDS]] * 2
+    assert cli.CLI_TELEMETRY_CLOSE_SECONDS > 1
+
+
+def test_a_telemetry_close_that_raises_does_not_change_the_commands_outcome():
+    class Broken(FakeClient):
+        def close_telemetry(self, timeout):
+            raise RuntimeError("telemetry is broken")
+
+    stdout = io.StringIO()
+    assert cli.main(_base_args() + ["models"], client_factory=lambda _args: Broken(), stdout=stdout) == 0
+    assert json.loads(stdout.getvalue())["models"]
+
+
+def test_build_client_passes_its_surface_into_construction(tmp_path, monkeypatch):
+    # A profile client reports the login it is built with, so it must know its
+    # surface then, not only once build_client returns.
+    monkeypatch.setenv("CORTEX_TRAINING_LOGIN_FILE", str(tmp_path / "missing.json"))
+    _write_profiles("training-profile")
+    args = cli.parse_args(["--connection", "training-profile", "list"])
+    args.telemetry_surface = "cli"
+    client_cls = MagicMock()
+
+    cli.build_client(args, client_cls)
+    assert client_cls._from_resolution.call_args.kwargs["telemetry_surface"] == "cli"
+
+    pat_args = cli.parse_args(["--host", "x.test", "--pat", "p", "--database", "DB", "list"])
+    pat_args.telemetry_surface = "cli"
+    cli.build_client(pat_args, client_cls)
+    assert client_cls._from_pat.call_args.kwargs["telemetry_surface"] == "cli"
+
+
+def test_the_commands_build_their_client_as_the_cli(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        cli, "build_client", lambda args, cls: seen.append(args.telemetry_surface) or FakeClient()
+    )
+
+    assert cli.main(_base_args() + ["list"], stdout=io.StringIO()) == 0
+    assert seen == ["cli"]
