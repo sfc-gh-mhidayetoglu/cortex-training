@@ -53,4 +53,7 @@ sf jenkins submit --controller https://neeva-001.jenkinsdev1.us-west-2.aws-dev.a
 
 Lists on `snowflakedb/cortex-training` `main` are the official catalog: a dry run there reports
 every existing skeleton for each job's config. For any other list (a fork or a branch) it reports
-only each job's own exact key on the chosen image.
+only each job's own exact key on the chosen image. For any list, the dry run also lists every
+skeleton dumped on the chosen backend image, for all models (model, cfg12, wt12, node coverage,
+and whether it is one of the list's jobs), with the weight sets they use; skeletons of other images
+are never listed.
